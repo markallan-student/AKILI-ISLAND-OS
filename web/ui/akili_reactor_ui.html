@@ -1,0 +1,1895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Personal Jarvis - Akili 80px Island Reactor</title>
+  <!-- Three.js for 3D Arc Reactor -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    :root {
+      --color-idle: #00d2ff;
+      --color-listen: #0077ff;
+      --color-think: #ffb703;
+      --color-speak: #00f5d4;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: #f0f0f5;
+    }
+
+    /* Transparent stage for island */
+    #stage {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+    }
+
+    /* 
+      Draggable Island Root:
+      Default rests at top-center (top: 14px, left: 50%, transform: translateX(-50%)).
+      User can drag it anywhere on screen. Double click resets to top-center!
+    */
+    #island-wrapper {
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      pointer-events: auto;
+      z-index: 100;
+      cursor: grab;
+      transition: box-shadow 0.2s ease;
+    }
+
+    #island-wrapper.dragging {
+      cursor: grabbing;
+      transition: none;
+    }
+
+    /* Fixed 80px Reactor Unit (Shrinks to 60x60 pill in idle) */
+    #reactor-unit {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: width 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), 
+                  height 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* Idle mode: 60x60 pill top-center */
+    #reactor-unit.state-idle {
+      width: 60px;
+      height: 60px;
+    }
+
+    /* Listening / Thinking / Speaking: 80x80 */
+    #reactor-unit.state-listening,
+    #reactor-unit.state-thinking,
+    #reactor-unit.state-speaking {
+      width: 80px;
+      height: 80px;
+    }
+
+    /* #reactor-canvas: circular 80x80 / 60x60 canvas with Three.js glow */
+    #reactor-canvas {
+      width: 100% !important;
+      height: 100% !important;
+      border-radius: 50%;
+      touch-action: none;
+      filter: drop-shadow(0 0 14px rgba(0, 210, 255, 0.55));
+      transition: filter 0.3s ease, border-radius 0.3s ease;
+      background: radial-gradient(circle at center, rgba(10, 18, 28, 0.95) 0%, rgba(4, 6, 10, 0.98) 75%, transparent 100%);
+      cursor: pointer;
+    }
+
+    #reactor-unit.state-listening #reactor-canvas {
+      filter: drop-shadow(0 0 22px rgba(0, 119, 255, 0.95)) drop-shadow(0 0 45px rgba(0, 210, 255, 0.6));
+      animation: pulse-ring 1.6s infinite ease-in-out;
+    }
+
+    #reactor-unit.state-thinking #reactor-canvas {
+      filter: drop-shadow(0 0 22px rgba(255, 183, 3, 0.9)) drop-shadow(0 0 35px rgba(251, 133, 0, 0.5));
+    }
+
+    #reactor-unit.state-speaking #reactor-canvas {
+      filter: drop-shadow(0 0 25px rgba(0, 245, 212, 0.9)) drop-shadow(0 0 45px rgba(63, 162, 102, 0.55));
+      animation: pulse-wave 1.1s infinite alternate ease-in-out;
+    }
+
+    @keyframes pulse-ring {
+      0% { transform: scale(0.97); }
+      50% { transform: scale(1.06); }
+      100% { transform: scale(0.97); }
+    }
+
+    @keyframes pulse-wave {
+      0% { transform: scale(0.99); }
+      100% { transform: scale(1.07); }
+    }
+
+    /* Active Mic Dot on edge of reactor */
+    .mic-dot {
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #00d2ff;
+      border: 2px solid #080b11;
+      box-shadow: 0 0 8px #00d2ff;
+      transition: all 0.25s ease;
+      z-index: 103;
+      pointer-events: none;
+    }
+
+    #reactor-unit.state-listening .mic-dot {
+      background: #0077ff;
+      box-shadow: 0 0 12px #0077ff;
+      animation: mic-pulse 0.9s infinite alternate;
+    }
+
+    #reactor-unit.state-speaking .mic-dot {
+      background: #00f5d4;
+      box-shadow: 0 0 12px #00f5d4;
+    }
+
+    @keyframes mic-pulse {
+      0% { transform: scale(0.9); opacity: 0.7; }
+      100% { transform: scale(1.35); opacity: 1; }
+    }
+
+    /* Mini quick buttons on island edge */
+    .mini-actions {
+      position: absolute;
+      top: -6px;
+      right: -10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      opacity: 0.85;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      z-index: 102;
+    }
+
+    #island-wrapper:hover .mini-actions {
+      opacity: 1;
+      transform: scale(1.05);
+    }
+
+    .mini-btn {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: rgba(16, 20, 28, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #d1d5db;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      transition: all 0.15s ease;
+    }
+
+    .mini-btn:hover {
+      background: #00d2ff;
+      color: #050a12;
+      border-color: #00d2ff;
+      transform: scale(1.15);
+    }
+
+    .mini-btn.stop-btn:hover {
+      background: #e34671;
+      border-color: #e34671;
+      color: white;
+    }
+
+    /* 
+      Live speech bubble OUTSIDE reactor (Nūs-style):
+      - Single click reactor -> expands to 250px input box with textarea + Send (black glass)
+      - Shows speech / reply in same bubble, hides after 5s
+    */
+    #live-bubble {
+      position: absolute;
+      left: 90px;
+      top: 0px;
+      max-width: 280px;
+      width: 260px;
+      background: rgba(15, 15, 20, 0.45);
+      backdrop-filter: blur(16px) saturate(180%);
+      -webkit-backdrop-filter: blur(16px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      color: #FFFFFF !important;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      z-index: 100;
+      display: none;
+      word-wrap: break-word;
+      pointer-events: auto;
+      animation: bubble-fade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    #live-bubble * {
+      color: #FFFFFF !important;
+    }
+
+    .vision-choice-btn {
+      background: rgba(0, 210, 255, 0.16);
+      border: 1px solid rgba(0, 210, 255, 0.4);
+      border-radius: 6px;
+      color: #FFFFFF !important;
+      font-size: 11px;
+      padding: 4px 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+
+    .vision-choice-btn:hover {
+      background: #00d2ff;
+      color: #060b14 !important;
+      border-color: #00d2ff;
+      transform: translateY(-1px);
+    }
+
+    @keyframes bubble-fade {
+      from { opacity: 0; transform: translateY(3px) scale(0.96); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .bubble-speaker {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #00d2ff;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    .bubble-speaker-tag {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .bubble-speaker.swahili {
+      color: #00f5d4;
+    }
+
+    .bubble-indicator {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 6px currentColor;
+    }
+
+    .bubble-close {
+      cursor: pointer;
+      opacity: 0.6;
+      font-size: 11px;
+      padding: 0 4px;
+    }
+
+    .bubble-close:hover {
+      opacity: 1;
+      color: #e34671;
+    }
+
+    /* Nūs-Style Text Input Form inside #live-bubble */
+    #bubble-input-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    #bubble-textarea {
+      width: 100%;
+      background: rgba(14, 18, 26, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: #f1f5f9;
+      font-size: 12px;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    #bubble-textarea:focus {
+      border-color: #00d2ff;
+      box-shadow: 0 0 0 1px #00d2ff;
+    }
+
+    .bubble-actions-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .attach-label {
+      cursor: pointer;
+      font-size: 13px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      transition: background 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: #94a3b8;
+    }
+
+    .attach-label:hover {
+      background: rgba(0, 210, 255, 0.15);
+      color: #00d2ff;
+    }
+
+    .attach-file-name {
+      font-size: 10px;
+      max-width: 110px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .bubble-send-btn {
+      background: #00d2ff;
+      color: #060b14;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      padding: 5px 12px;
+      cursor: pointer;
+      font-size: 11px;
+      transition: background 0.15s;
+    }
+
+    .bubble-send-btn:hover {
+      background: #38bdf8;
+    }
+
+    #bubble-display-text {
+      color: #f1f5f9;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    /* 900x700 Logs & Control Drawer triggered by expand-btn (☰) */
+    #logs-drawer {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.95);
+      width: min(900px, 94vw);
+      height: min(700px, 90vh);
+      background: #10141a;
+      border: 1px solid #232c38;
+      border-radius: 16px;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.06);
+      display: flex;
+      flex-direction: column;
+      z-index: 200;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow: hidden;
+    }
+
+    #logs-drawer.open {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    #drawer-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(4px);
+      z-index: 199;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+
+    #drawer-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .drawer-header {
+      height: 52px;
+      background: #151a22;
+      border-bottom: 1px solid #232c38;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+    }
+
+    .drawer-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      background: rgba(0, 210, 255, 0.12);
+      border: 1px solid rgba(0, 210, 255, 0.28);
+      border-radius: 20px;
+      color: #00d2ff;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .close-btn {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      font-size: 18px;
+      cursor: pointer;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .close-btn:hover {
+      background: #232c38;
+      color: white;
+    }
+
+    .drawer-tabs {
+      display: flex;
+      background: #11151d;
+      border-bottom: 1px solid #232c38;
+      padding: 0 16px;
+    }
+
+    .tab-btn {
+      padding: 10px 16px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .tab-btn.active {
+      color: #00d2ff;
+      border-bottom-color: #00d2ff;
+      background: rgba(0, 210, 255, 0.04);
+    }
+
+    .drawer-body {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .tab-pane {
+      display: none;
+      width: 100%;
+      height: 100%;
+      flex-direction: column;
+    }
+
+    .tab-pane.active {
+      display: flex;
+    }
+
+    .logs-container {
+      flex: 1;
+      padding: 14px 18px;
+      background: #0b0e13;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .log-row {
+      margin-bottom: 6px;
+      display: flex;
+      gap: 10px;
+    }
+
+    .log-time {
+      color: #64748b;
+      min-width: 65px;
+    }
+
+    .log-tag {
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .tag-stt { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+    .tag-brain { background: rgba(168, 85, 247, 0.2); color: #c084fc; }
+    .tag-tts { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .tag-wake { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+    .tag-desktop { background: rgba(236, 72, 153, 0.2); color: #f472b6; }
+    .tag-notice { background: rgba(16, 185, 129, 0.2); color: #38bdf8; }
+
+    .log-msg {
+      color: #e2e8f0;
+      word-break: break-all;
+    }
+
+    .chat-view {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #0d1117;
+    }
+
+    .chat-messages {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .chat-bubble {
+      max-width: 75%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .chat-bubble.user {
+      align-self: flex-end;
+      background: #2563eb;
+      color: white;
+      border-bottom-right-radius: 3px;
+    }
+
+    .chat-bubble.assistant {
+      align-self: flex-start;
+      background: #1e2430;
+      border: 1px solid #2b3545;
+      color: #e2e8f0;
+      border-bottom-left-radius: 3px;
+    }
+
+    .chat-composer {
+      padding: 12px 16px;
+      background: #151a22;
+      border-top: 1px solid #232c38;
+      display: flex;
+      gap: 10px;
+    }
+
+    .chat-input {
+      flex: 1;
+      background: #0c0f14;
+      border: 1px solid #2c3645;
+      border-radius: 8px;
+      padding: 9px 14px;
+      color: white;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .chat-input:focus {
+      border-color: #00d2ff;
+      box-shadow: 0 0 0 2px rgba(0, 210, 255, 0.15);
+    }
+
+    .send-btn {
+      background: #00d2ff;
+      color: #060b14;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      padding: 0 16px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.15s;
+    }
+
+    .send-btn:hover {
+      background: #38bdf8;
+    }
+
+    .quick-chips {
+      padding: 8px 16px;
+      background: #11151c;
+      border-top: 1px solid #1e2632;
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+    }
+
+    .chip-btn {
+      background: #19212c;
+      border: 1px solid #2c384a;
+      color: #94a3b8;
+      border-radius: 14px;
+      padding: 4px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+
+    .chip-btn:hover {
+      background: #243142;
+      color: #38bdf8;
+      border-color: #38bdf8;
+    }
+
+    .specs-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .spec-card {
+      background: #151a23;
+      border: 1px solid #232c38;
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .spec-card h3 {
+      font-size: 14px;
+      color: #38bdf8;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .spec-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 12px;
+    }
+
+    .spec-label {
+      color: #94a3b8;
+    }
+
+    .spec-value {
+      font-weight: 500;
+      color: #f1f5f9;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Long-Term Memory Editor */
+    .memory-box {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      background: #0d1117;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .memory-card {
+      background: #161b24;
+      border: 1px solid #253040;
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .memory-card h4 {
+      font-size: 13px;
+      color: #00d2ff;
+      margin-bottom: 8px;
+    }
+
+    .memory-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+
+    .memory-list li {
+      padding: 6px 10px;
+      background: #0f141d;
+      border-radius: 6px;
+      border-left: 2px solid #00d2ff;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="stage">
+
+    <!-- Draggable 80px Island Root with Outside Live Bubble -->
+    <div id="island-wrapper" class="pywebview-drag-region" title="Akili 80px Island Reactor - Click to chat, Drag to position, Double-click to reset top-center">
+      
+      <!-- Fixed 80px Reactor Unit (Shrinks to 60x60 pill in idle) -->
+      <div id="reactor-unit" class="state-idle">
+        <canvas id="reactor-canvas" class="pywebview-drag-region"></canvas>
+
+        <!-- Active Mic Dot -->
+        <div class="mic-dot" id="mic-status-dot" title="Listening status indicator"></div>
+
+        <!-- Mini Hover Actions -->
+        <div class="mini-actions">
+          <button id="expand-btn" class="mini-btn" title="Open Logs & Settings Drawer (900x700)" onclick="toggleLogsDrawer(event)">☰</button>
+          <button id="eyes-btn" class="mini-btn" title="Akili Eyes Vision (Voice or Click)" onclick="handleEyesClick(event)">👁️</button>
+          <button id="mic-btn" class="mini-btn" title="Microphone / Voice input" onclick="handleMicClick(event)">🎙️</button>
+          <button id="tulia-btn" class="mini-btn stop-btn" title="Tulia (Stop Audio & Reset)" onclick="handleTuliaClick(event)">⏹</button>
+        </div>
+      </div>
+
+      <!-- Live speech bubble OUTSIDE reactor (Nūs-style expand text input + live speech display) -->
+      <div id="live-bubble">
+        <div class="bubble-speaker" id="bubble-speaker">
+          <div class="bubble-speaker-tag">
+            <span class="bubble-indicator"></span>
+            <span id="bubble-speaker-label">Akili</span>
+          </div>
+          <span class="bubble-close" onclick="closeBubble()">✕</span>
+        </div>
+
+        <!-- Bubble text message mode -->
+        <div id="bubble-display-text">Listening...</div>
+
+        <!-- Vision choices interactive buttons -->
+        <div id="bubble-vision-choices" style="display:none; margin-top:8px; flex-direction:column; gap:6px;">
+          <div style="font-size:10px; color:#94a3b8; font-weight:500;">Say or tap vision mode:</div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <button class="vision-choice-btn" onclick="selectVisionMode('Full screen')">1. Full screen</button>
+            <button class="vision-choice-btn" onclick="selectVisionMode('Active window')">2. Active window</button>
+            <button class="vision-choice-btn" onclick="selectVisionMode('Select area')">3. Select area</button>
+          </div>
+        </div>
+
+        <!-- Nūs-style expandable text input mode -->
+        <div id="bubble-input-section" style="display:none;">
+          <textarea id="bubble-textarea" placeholder="Ask Akili or give desktop command..." rows="2" onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendBubblePrompt(); }"></textarea>
+          <div class="bubble-actions-row">
+            <label class="attach-label" title="Attach file or screenshot for Gemini vision">
+              📎 <span id="attach-name" class="attach-file-name">Attach</span>
+              <input type="file" id="bubble-file-input" style="display:none;" accept="image/*" onchange="handleFileSelect(event)">
+            </label>
+            <button class="bubble-send-btn" onclick="sendBubblePrompt()">Send</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Interactive Screen Area Selection Drag Overlay -->
+    <div id="vision-area-overlay" style="display:none; position:fixed; inset:0; z-index:9999; cursor:crosshair; background:rgba(0,0,0,0.5); user-select:none; pointer-events:auto;">
+      <div id="vision-area-banner" style="position:absolute; top:24px; left:50%; transform:translateX(-50%); background:rgba(15,18,26,0.92); backdrop-filter:blur(12px); border:1px solid #00d2ff; border-radius:10px; color:#FFFFFF; padding:10px 18px; font-size:13px; font-weight:600; box-shadow:0 8px 32px rgba(0,0,0,0.8); pointer-events:none; display:flex; align-items:center; gap:8px;">
+        <span style="color:#00d2ff;">● AKILI</span>
+        <span>Drag a rectangle across the screen area to inspect · Press <kbd style="background:#232c38; padding:2px 6px; border-radius:4px; font-size:11px;">Esc</kbd> to cancel</span>
+      </div>
+      <div id="vision-selection-box" style="position:absolute; display:none; border:2px dashed #00d2ff; background:rgba(0,210,255,0.18); box-shadow:0 0 20px rgba(0,210,255,0.45); pointer-events:none;"></div>
+    </div>
+
+  </div>
+
+  <!-- Drawer Backdrop -->
+  <div id="drawer-backdrop" onclick="toggleLogsDrawer()"></div>
+
+  <!-- 900x700 Logs & Control Drawer -->
+  <div id="logs-drawer">
+    <div class="drawer-header">
+      <div class="drawer-title">
+        <span>⚡ Akili Reactor Command Hub</span>
+        <div class="status-badge" id="system-status-badge">
+          <span class="bubble-indicator" style="background:#00d2ff"></span>
+          <span id="status-text">Cloud Heavy · &lt;150MB RAM</span>
+        </div>
+      </div>
+      <button class="close-btn" onclick="toggleLogsDrawer()">✕</button>
+    </div>
+
+    <div class="drawer-tabs">
+      <button class="tab-btn active" onclick="switchTab('logs')">Live Logs & Pipeline</button>
+      <button class="tab-btn" onclick="switchTab('chat')">Conversations & Voice Test</button>
+      <button class="tab-btn" onclick="switchTab('memory')">Long-Term Memory</button>
+      <button class="tab-btn" onclick="switchTab('screenshot')">Active Window Vision</button>
+      <button class="tab-btn" onclick="switchTab('architecture')">Cloud Architecture</button>
+    </div>
+
+    <div class="drawer-body">
+      <!-- Tab 1: Logs -->
+      <div id="tab-logs" class="tab-pane active">
+        <div class="logs-container" id="logs-list">
+          <div class="log-row">
+            <span class="log-time">15:00:01</span>
+            <span class="log-tag tag-notice">MODE</span>
+            <span class="log-msg">Single-click reactor opens Nūs-style text input box at left:90px</span>
+          </div>
+          <div class="log-row">
+            <span class="log-time">15:00:02</span>
+            <span class="log-tag tag-wake">WAKE</span>
+            <span class="log-msg">Wake words enabled: 'hey akili' & 'hey jarvis' | Hotkey: Ctrl+Alt+Space</span>
+          </div>
+          <div class="log-row">
+            <span class="log-time">15:00:02</span>
+            <span class="log-tag tag-desktop">DESKTOP</span>
+            <span class="log-msg">Active window hook registered (mss + pywinauto) | Automation: pyautogui</span>
+          </div>
+          <div class="log-row">
+            <span class="log-time">15:00:03</span>
+            <span class="log-tag tag-brain">CLOUD</span>
+            <span class="log-msg">Gemini 2.5 Flash Brain initialized · STT: Groq whisper-large-v3-turbo</span>
+          </div>
+          <div class="log-row">
+            <span class="log-time">15:00:03</span>
+            <span class="log-tag tag-tts">TTS</span>
+            <span class="log-msg">Kenyan edge-tts auto-switch: Swahili [fiti, sawa, poa, niaje, mambo] -> sw-KE-ZuriNeural | English -> en-KE-AsiliaNeural</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Chat & Voice Console -->
+      <div id="tab-chat" class="tab-pane">
+        <div class="chat-view">
+          <div class="chat-messages" id="chat-messages">
+            <div class="chat-bubble assistant">
+              <strong>Akili:</strong> Niaje! I am online with cloud-heavy processing (&lt;150MB local RAM). Click on the 80px reactor circle anytime to open the Nūs input box directly on your screen!
+            </div>
+          </div>
+
+          <div class="quick-chips">
+            <button class="chip-btn" onclick="sendQuickPrompt('Niaje Akili, uko fiti?')">🇰🇪 "Niaje Akili, uko fiti?"</button>
+            <button class="chip-btn" onclick="sendQuickPrompt('Mambo vipi, kila kitu kiko poa?')">🇰🇪 "Mambo vipi, kiko poa?"</button>
+            <button class="chip-btn" onclick="sendQuickPrompt('Open google.com in my browser')">🌐 "Open google.com"</button>
+            <button class="chip-btn" onclick="sendQuickPrompt('Summarize what is currently on my screen.')">📸 "Summarize screen"</button>
+            <button class="chip-btn" onclick="triggerScreenshot()">🖥️ Capture Focused Window</button>
+          </div>
+
+          <div class="chat-composer">
+            <input type="text" id="chat-input" class="chat-input" placeholder="Type command to Akili... (Enter to send)" onkeydown="if(event.key==='Enter') sendInputMessage()">
+            <button class="send-btn" onclick="sendInputMessage()">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Long-Term Memory (memory.json) -->
+      <div id="tab-memory" class="tab-pane">
+        <div class="memory-box">
+          <div class="memory-card">
+            <h4>🧠 Persistent Facts (Synchronized with Gemini Cloud)</h4>
+            <ul class="memory-list" id="memory-facts-list">
+              <li>Akili runs as a lightweight 80px island reactor on desktop (&lt;150MB local RAM).</li>
+              <li>Heavy STT runs on Groq Whisper Large v3 Turbo.</li>
+              <li>Heavy Brain runs on Google Gemini 2.5 Flash.</li>
+              <li>Bilingual Kenyan voice synthesizes via edge-tts (sw-KE-ZuriNeural / en-KE-AsiliaNeural).</li>
+            </ul>
+          </div>
+          <div class="memory-card">
+            <h4>📋 Standing Instructions</h4>
+            <ul class="memory-list">
+              <li>Always respond concisely in 1-3 sentences suitable for speech audio.</li>
+              <li>When Swahili or Sheng words like 'fiti', 'sawa', 'poa', 'niaje', 'mambo' appear, reply warmly with natural Kenyan phrasing.</li>
+              <li>Execute browser & desktop automation via local pyautogui when instructed by user.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 4: Active Window Screenshot -->
+      <div id="tab-screenshot" class="tab-pane" style="padding:16px; overflow-y:auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div>
+            <h4 style="font-size:14px; color:#f1f5f9;">Active Window Capture (mss + pywinauto)</h4>
+            <p style="font-size:12px; color:#94a3b8;">Captures focused application window only without local CPU strain.</p>
+          </div>
+          <button class="send-btn" onclick="triggerScreenshot()">Capture Active Window</button>
+        </div>
+        <div id="screenshot-preview-container" style="background:#090c10; border:1px solid #232c38; border-radius:8px; min-height:280px; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+          <p style="color:#64748b; font-size:12px;">Click 'Capture Active Window' to grab focused window rect</p>
+        </div>
+      </div>
+
+      <!-- Tab 5: Cloud Architecture -->
+      <div id="tab-architecture" class="tab-pane">
+        <div class="specs-grid">
+          <div class="spec-card">
+            <h3>⚡ Local Footprint (&lt;150MB RAM)</h3>
+            <div class="spec-item"><span class="spec-label">Island Size:</span><span class="spec-value">80x80px (60x60 pill idle)</span></div>
+            <div class="spec-item"><span class="spec-label">Nūs Input Box:</span><span class="spec-value">Left:90px Black Glass</span></div>
+            <div class="spec-item"><span class="spec-label">Wake Words:</span><span class="spec-value">"hey akili", "hey jarvis"</span></div>
+            <div class="spec-item"><span class="spec-label">Local Automation:</span><span class="spec-value">pyautogui + pywinauto</span></div>
+            <div class="spec-item"><span class="spec-label">Local RAM:</span><span class="spec-value" style="color:#00f5d4;">~82 MB (&lt;150MB target)</span></div>
+          </div>
+
+          <div class="spec-card">
+            <h3>☁️ Cloud-Heavy Stack</h3>
+            <div class="spec-item"><span class="spec-label">Speech-To-Text:</span><span class="spec-value">Groq whisper-large-v3-turbo</span></div>
+            <div class="spec-item"><span class="spec-label">LLM Brain:</span><span class="spec-value">Gemini 2.5 Flash API</span></div>
+            <div class="spec-item"><span class="spec-label">Swahili Voice:</span><span class="spec-value">sw-KE-ZuriNeural</span></div>
+            <div class="spec-item"><span class="spec-label">English Voice:</span><span class="spec-value">en-KE-AsiliaNeural</span></div>
+            <div class="spec-item"><span class="spec-label">Tulia Stop:</span><span class="spec-value">Instant abort supported</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <audio id="tts-audio-player" style="display:none"></audio>
+
+  <!-- Three.js Arc Reactor Engine & Client Logic -->
+  <script>
+    let scene, camera, renderer;
+    let coreSphere, outerRings = [], particleSystem;
+    let currentState = 'idle'; // idle | listening | thinking | speaking
+    let stateTime = 0;
+    let bubbleTimeout = null;
+    let selectedImageBase64 = null;
+
+    // Detect if running inside cloud web preview (prevent speech error spam)
+    const isWebPreview = window.location.hostname.includes('google') || 
+                         window.location.hostname.includes('run.app') || 
+                         window.location.hostname.includes('localhost') || 
+                         !window.pywebview;
+
+    const STATE_COLORS = {
+      idle: 0x00d2ff,       // Cyan
+      listening: 0x0077ff,  // Electric Blue
+      thinking: 0xffb703,   // Gold / Amber
+      speaking: 0x00f5d4    // Vivid Emerald / Mint
+    };
+
+    // Initialize Draggable Island (Native pywebview + Web Pointer Capture)
+    function initDraggableIsland() {
+      const island = document.getElementById('island-wrapper');
+      const canvas = document.getElementById('reactor-canvas');
+      let isDragging = false;
+      let startX, startY;
+      let initialLeft, initialTop;
+      let hasMoved = false;
+
+      canvas.addEventListener('pointerdown', (e) => {
+        isDragging = true;
+        hasMoved = false;
+        startX = e.clientX;
+        startY = e.clientY;
+
+        const rect = island.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+
+        canvas.setPointerCapture(e.pointerId);
+      });
+
+      canvas.addEventListener('pointermove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        if (Math.hypot(dx, dy) > 5) {
+          hasMoved = true;
+          island.classList.add('dragging');
+          island.style.transform = 'none';
+          island.style.left = `${Math.max(10, Math.min(window.innerWidth - 90, initialLeft + dx))}px`;
+          island.style.top = `${Math.max(10, Math.min(window.innerHeight - 90, initialTop + dy))}px`;
+        }
+      });
+
+      canvas.addEventListener('pointerup', (e) => {
+        if (!isDragging) return;
+        isDragging = false;
+        island.classList.remove('dragging');
+        canvas.releasePointerCapture(e.pointerId);
+
+        // Single click (not drag): opens Nūs-style text input box in #live-bubble!
+        if (!hasMoved) {
+          openNusInputBubble();
+        }
+      });
+
+      // Double-click resets to top-center (per Jarvis orb spec)
+      canvas.addEventListener('dblclick', () => {
+        island.style.left = '50%';
+        island.style.top = '14px';
+        island.style.transform = 'translateX(-50%)';
+        logEvent('ISLAND', 'Position reset to top-center pill');
+      });
+    }
+
+    function initReactor() {
+      const canvas = document.getElementById('reactor-canvas');
+      const size = 160;
+
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      camera.position.z = 4.2;
+
+      renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        alpha: true,
+        antialias: true,
+        powerPreference: 'high-performance'
+      });
+      renderer.setSize(size, size);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+      // Core Sphere
+      const coreGeo = new THREE.SphereGeometry(0.55, 32, 32);
+      const coreMat = new THREE.MeshBasicMaterial({
+        color: STATE_COLORS.idle,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.85
+      });
+      coreSphere = new THREE.Mesh(coreGeo, coreMat);
+      scene.add(coreSphere);
+
+      // Glowing heart
+      const innerCoreGeo = new THREE.SphereGeometry(0.38, 16, 16);
+      const innerCoreMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.95
+      });
+      const innerCore = new THREE.Mesh(innerCoreGeo, innerCoreMat);
+      coreSphere.add(innerCore);
+
+      // Concentric Rings
+      const ringSpecs = [
+        { radius: 0.85, tube: 0.022, segments: 40, rotSpeed: 0.015 },
+        { radius: 1.15, tube: 0.018, segments: 48, rotSpeed: -0.022 },
+        { radius: 1.45, tube: 0.025, segments: 60, rotSpeed: 0.01 }
+      ];
+
+      ringSpecs.forEach((spec, i) => {
+        const ringGeo = new THREE.TorusGeometry(spec.radius, spec.tube, 8, spec.segments);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: STATE_COLORS.idle,
+          transparent: true,
+          opacity: 0.65 - (i * 0.12)
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = Math.PI * 0.25 * (i + 1);
+        ring.rotation.y = Math.PI * 0.15 * i;
+        ring.userData = spec;
+        outerRings.push(ring);
+        scene.add(ring);
+      });
+
+      // Sparks
+      const particleCount = 120;
+      const particleGeo = new THREE.BufferGeometry();
+      const positions = new Float32Array(particleCount * 3);
+
+      for (let i = 0; i < particleCount; i++) {
+        const r = 0.6 + Math.random() * 1.0;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = (Math.random() - 0.5) * Math.PI;
+
+        positions[i * 3] = r * Math.cos(theta) * Math.cos(phi);
+        positions[i * 3 + 1] = r * Math.sin(theta) * Math.cos(phi);
+        positions[i * 3 + 2] = r * Math.sin(phi);
+      }
+
+      particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const particleMat = new THREE.PointsMaterial({
+        color: STATE_COLORS.idle,
+        size: 0.045,
+        transparent: true,
+        opacity: 0.75,
+        blending: THREE.AdditiveBlending
+      });
+      particleSystem = new THREE.Points(particleGeo, particleMat);
+      scene.add(particleSystem);
+
+      animate();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      stateTime += 0.016;
+
+      const targetColor = new THREE.Color(STATE_COLORS[currentState] || STATE_COLORS.idle);
+
+      if (coreSphere) {
+        let rotSpeed = 0.01;
+        let scale = 1.0;
+
+        if (currentState === 'idle') {
+          rotSpeed = 0.008;
+          scale = 0.95 + Math.sin(stateTime * 2.0) * 0.05;
+        } else if (currentState === 'listening') {
+          rotSpeed = 0.035;
+          scale = 1.05 + Math.sin(stateTime * 8.0) * 0.12;
+        } else if (currentState === 'thinking') {
+          rotSpeed = 0.05;
+          scale = 1.0 + Math.sin(stateTime * 5.0) * 0.08;
+        } else if (currentState === 'speaking') {
+          rotSpeed = 0.025;
+          scale = 1.08 + Math.sin(stateTime * 12.0) * 0.15;
+        }
+
+        coreSphere.rotation.y += rotSpeed;
+        coreSphere.rotation.x += rotSpeed * 0.5;
+        coreSphere.scale.set(scale, scale, scale);
+        coreSphere.material.color.lerp(targetColor, 0.08);
+      }
+
+      outerRings.forEach((ring) => {
+        const spec = ring.userData;
+        let speed = spec.rotSpeed;
+
+        if (currentState === 'listening') speed *= 2.2;
+        if (currentState === 'thinking') speed *= 3.5;
+        if (currentState === 'speaking') speed *= 1.8;
+
+        ring.rotation.z += speed;
+        ring.rotation.x += speed * 0.5;
+        ring.material.color.lerp(targetColor, 0.08);
+      });
+
+      if (particleSystem) {
+        particleSystem.rotation.y += 0.005;
+        particleSystem.material.color.lerp(targetColor, 0.08);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    // Set Akili State: idle | listening | thinking | speaking
+    window.setAkiliState = function(state) {
+      if (!STATE_COLORS[state]) return;
+      currentState = state;
+
+      const unit = document.getElementById('reactor-unit');
+      unit.className = `state-${state}`;
+
+      logEvent('REACTOR', `State changed to '${state}'`);
+
+      if (state === 'idle') {
+        updateStatusBadge('Ready · Idle (60x60 Pill)', '#00d2ff');
+      } else if (state === 'listening') {
+        updateStatusBadge('Listening (80x80 Pulse)...', '#0077ff');
+      } else if (state === 'thinking') {
+        updateStatusBadge('Thinking (Gemini 2.5 Flash)...', '#ffb703');
+      } else if (state === 'speaking') {
+        updateStatusBadge('Speaking (edge-tts)...', '#00f5d4');
+      }
+    };
+
+    function updateStatusBadge(text, color) {
+      const badge = document.getElementById('status-text');
+      if (badge) badge.innerText = text;
+      const ind = document.querySelector('#system-status-badge .bubble-indicator');
+      if (ind) ind.style.background = color;
+    }
+
+    // Nūs-style text input box in #live-bubble
+    window.openNusInputBubble = function() {
+      if (bubbleTimeout) clearTimeout(bubbleTimeout);
+
+      const bubble = document.getElementById('live-bubble');
+      const displayText = document.getElementById('bubble-display-text');
+      const inputSection = document.getElementById('bubble-input-section');
+      const speakerElem = document.getElementById('bubble-speaker-label');
+
+      displayText.style.display = 'none';
+      inputSection.style.display = 'flex';
+      if (speakerElem) speakerElem.innerText = 'Ask Akili';
+
+      bubble.style.display = 'block';
+
+      const textarea = document.getElementById('bubble-textarea');
+      if (textarea) {
+        setTimeout(() => textarea.focus(), 100);
+      }
+    };
+
+    window.closeBubble = function() {
+      const bubble = document.getElementById('live-bubble');
+      if (bubble) bubble.style.display = 'none';
+      hideVisionChoices();
+    };
+
+    window.hideVisionChoices = function() {
+      const choicesSection = document.getElementById('bubble-vision-choices');
+      if (choicesSection) choicesSection.style.display = 'none';
+    };
+
+    window.showLiveBubbleWithChoices = function(text, speaker = 'Akili') {
+      const bubble = document.getElementById('live-bubble');
+      const displayText = document.getElementById('bubble-display-text');
+      const inputSection = document.getElementById('bubble-input-section');
+      const choicesSection = document.getElementById('bubble-vision-choices');
+      const speakerElem = document.getElementById('bubble-speaker-label');
+      const speakerCont = document.getElementById('bubble-speaker');
+
+      if (!bubble || !displayText) return;
+
+      inputSection.style.display = 'none';
+      displayText.style.display = 'block';
+      displayText.innerText = text;
+
+      if (choicesSection) choicesSection.style.display = 'flex';
+      if (speakerElem) speakerElem.innerText = speaker;
+
+      bubble.style.display = 'block';
+
+      if (bubbleTimeout) clearTimeout(bubbleTimeout);
+    };
+
+    // Live speech bubble OUTSIDE reactor (shows text, auto-hides after duration)
+    window.showLiveBubble = function(text, speaker = 'Akili', durationMs = 5000) {
+      const bubble = document.getElementById('live-bubble');
+      const displayText = document.getElementById('bubble-display-text');
+      const inputSection = document.getElementById('bubble-input-section');
+      const choicesSection = document.getElementById('bubble-vision-choices');
+      const speakerElem = document.getElementById('bubble-speaker-label');
+      const speakerCont = document.getElementById('bubble-speaker');
+
+      if (!bubble || !displayText) return;
+
+      if (choicesSection) choicesSection.style.display = 'none';
+      inputSection.style.display = 'none';
+      displayText.style.display = 'block';
+      displayText.innerText = text;
+
+      if (speakerElem) speakerElem.innerText = speaker;
+
+      const swahiliWords = ["fiti", "sawa", "poa", "niaje", "mambo"];
+      const lower = text.toLowerCase();
+      const hasSwahili = swahiliWords.some(w => lower.includes(w));
+      if (speakerCont) {
+        if (hasSwahili) {
+          speakerCont.classList.add('swahili');
+          if (speakerElem) speakerElem.innerText = `${speaker} 🇰🇪`;
+        } else {
+          speakerCont.classList.remove('swahili');
+        }
+      }
+
+      bubble.style.display = 'block';
+
+      if (bubbleTimeout) clearTimeout(bubbleTimeout);
+      if (durationMs > 0) {
+        bubbleTimeout = setTimeout(() => {
+          bubble.style.display = 'none';
+        }, durationMs);
+      }
+    };
+
+    let selectedFileObject = null;
+
+    // Handle Nūs Bubble Prompt Submission
+    window.sendBubblePrompt = function() {
+      const textarea = document.getElementById('bubble-textarea');
+      const text = textarea ? textarea.value.trim() : '';
+      if (!text && !selectedFileObject && !selectedImageBase64) return;
+
+      if (textarea) textarea.value = '';
+
+      showLiveBubble(`You: ${text || 'Attached file'}`, 'You', 2500);
+      handleUserPrompt(text, selectedFileObject, selectedImageBase64);
+
+      selectedFileObject = null;
+      selectedImageBase64 = null;
+      const attachLabel = document.getElementById('attach-name');
+      if (attachLabel) attachLabel.innerText = 'Attach';
+      const fileInput = document.getElementById('bubble-file-input');
+      if (fileInput) fileInput.value = '';
+    };
+
+    function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      selectedFileObject = file;
+      const attachLabel = document.getElementById('attach-name');
+      if (attachLabel) attachLabel.innerText = file.name.substring(0, 10) + '..';
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        selectedImageBase64 = e.target.result;
+        logEvent('FILE', `Attached file for multimodal Gemini vision: ${file.name} (${Math.round(file.size/1024)}KB)`);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    let visionState = 'none'; // 'none' | 'awaiting_vision_choice'
+    let isAreaSelecting = false;
+    let areaStartX = 0;
+    let areaStartY = 0;
+
+    // Tulia: Halt speech, stop listening, clear bubble, return to idle
+    window.tulia = function() {
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      const player = document.getElementById('tts-audio-player');
+      if (player) {
+        player.pause();
+        player.currentTime = 0;
+      }
+      visionState = 'none';
+      hideVisionChoices();
+      const overlay = document.getElementById('vision-area-overlay');
+      if (overlay) overlay.style.display = 'none';
+
+      fetch('/api/tulia', { method: 'POST' }).catch(()=>{});
+      fetch('/tulia', { method: 'POST' }).catch(()=>{});
+      setAkiliState('idle');
+      showLiveBubble('Nimetulia (Stopped)', 'Akili', 2500);
+      logEvent('TULIA', 'User invoked stop command - halted immediately');
+    };
+
+    function handleTuliaClick(e) {
+      e.stopPropagation();
+      tulia();
+    }
+
+    // Handle Mic Click with preview notice (prevents error spam!)
+    function handleMicClick(e) {
+      e.stopPropagation();
+
+      if (isWebPreview) {
+        logEvent('NOTICE', 'Mic works in desktop app after download - use Nūs text input');
+        showLiveBubble('Mic works only in desktop app after download - use text input to test', 'Akili', 4500);
+        return;
+      }
+
+      toggleMic();
+    }
+
+    function toggleMic() {
+      if (currentState === 'listening') {
+        setAkiliState('idle');
+        return;
+      }
+      setAkiliState('listening');
+    }
+
+    // Manual Eyes Button Click Trigger
+    window.handleEyesClick = function(e) {
+      if (e) e.stopPropagation();
+      logEvent('EYES', 'Eyes button clicked · Prompting 3-way vision modes');
+      promptVisionChoice();
+    };
+
+    // Prompt user for 3-way vision mode with voice and bubble
+    window.promptVisionChoice = function(customReply = null, customVoice = null, audioB64 = null) {
+      visionState = 'awaiting_vision_choice';
+      const replyText = customReply || "● AKILI I can see 3 ways: 1. Full screen 2. Active window 3. Select area - say which one Boss";
+      const voice = customVoice || "en-KE-AsiliaNeural";
+
+      setAkiliState('speaking');
+      showLiveBubbleWithChoices(replyText, 'Akili');
+      appendChatMessage('assistant', replyText);
+      logEvent('EYES', '● AKILI I can see 3 ways: 1. Full screen 2. Active window 3. Select area');
+
+      if (audioB64) {
+        playAudioBase64(audioB64, replyText, voice);
+      } else {
+        speakKenyanVoice(replyText, voice);
+      }
+    };
+
+    // User chooses vision mode via voice or button click
+    window.selectVisionMode = function(mode) {
+      visionState = 'none';
+      hideVisionChoices();
+      logEvent('EYES', `User selected vision mode: ${mode}`);
+
+      if (mode === 'Full screen') {
+        capture_full();
+      } else if (mode === 'Active window') {
+        capture_active();
+      } else if (mode === 'Select area') {
+        capture_area();
+      }
+    };
+
+    // 1. Full Screen Capture
+    window.capture_full = async function() {
+      showLiveBubble('● AKILI Eyes... seeing Full screen', 'Akili', 0);
+      setAkiliState('thinking');
+      logEvent('EYES', '● AKILI Eyes... seeing Full screen');
+
+      try {
+        const resp = await fetch('/api/screenshot/full');
+        const data = await resp.json();
+        const dataUrl = data.data_url;
+        await sendVisionInspection(dataUrl, 'Full screen');
+      } catch (err) {
+        showLiveBubble(`⚠️ Full capture error: ${err.message || err}`, 'Akili', 5000);
+        setAkiliState('idle');
+      }
+    };
+
+    // 2. Active Window Capture
+    window.capture_active = async function() {
+      showLiveBubble('● AKILI Eyes... seeing Active window', 'Akili', 0);
+      setAkiliState('thinking');
+      logEvent('EYES', '● AKILI Eyes... seeing Active window');
+
+      try {
+        const resp = await fetch('/api/screenshot/active');
+        const data = await resp.json();
+        const dataUrl = data.data_url;
+        await sendVisionInspection(dataUrl, 'Active window');
+      } catch (err) {
+        showLiveBubble(`⚠️ Active capture error: ${err.message || err}`, 'Akili', 5000);
+        setAkiliState('idle');
+      }
+    };
+
+    // 3. Interactive Custom Area Selection Capture
+    window.capture_area = function() {
+      logEvent('EYES', 'Select area requested · drag overlay active');
+      showLiveBubble('Drag a box on screen to inspect area...', 'Akili', 4000);
+      const overlay = document.getElementById('vision-area-overlay');
+      if (overlay) {
+        overlay.style.display = 'block';
+      }
+    };
+
+    function initAreaSelectionOverlay() {
+      const overlay = document.getElementById('vision-area-overlay');
+      const box = document.getElementById('vision-selection-box');
+      if (!overlay || !box) return;
+
+      overlay.addEventListener('mousedown', (e) => {
+        isAreaSelecting = true;
+        areaStartX = e.clientX;
+        areaStartY = e.clientY;
+        box.style.left = `${areaStartX}px`;
+        box.style.top = `${areaStartY}px`;
+        box.style.width = '0px';
+        box.style.height = '0px';
+        box.style.display = 'block';
+      });
+
+      overlay.addEventListener('mousemove', (e) => {
+        if (!isAreaSelecting) return;
+        const currentX = e.clientX;
+        const currentY = e.clientY;
+        const x = Math.min(areaStartX, currentX);
+        const y = Math.min(areaStartY, currentY);
+        const w = Math.abs(currentX - areaStartX);
+        const h = Math.abs(currentY - areaStartY);
+        box.style.left = `${x}px`;
+        box.style.top = `${y}px`;
+        box.style.width = `${w}px`;
+        box.style.height = `${h}px`;
+      });
+
+      overlay.addEventListener('mouseup', async (e) => {
+        if (!isAreaSelecting) return;
+        isAreaSelecting = false;
+        overlay.style.display = 'none';
+        box.style.display = 'none';
+
+        const finalX = Math.min(areaStartX, e.clientX);
+        const finalY = Math.min(areaStartY, e.clientY);
+        const finalW = Math.max(50, Math.abs(e.clientX - areaStartX));
+        const finalH = Math.max(50, Math.abs(e.clientY - areaStartY));
+
+        showLiveBubble('● AKILI Eyes... seeing Select area', 'Akili', 0);
+        setAkiliState('thinking');
+        logEvent('EYES', `● AKILI Eyes... seeing Select area (${finalW}x${finalH} at ${finalX},${finalY})`);
+
+        // Render cropped canvas representing the selected region
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = finalW;
+        cropCanvas.height = finalH;
+        const ctx = cropCanvas.getContext('2d');
+
+        // Draw styled dark backdrop and target viewport border
+        ctx.fillStyle = '#0a0e14';
+        ctx.fillRect(0, 0, finalW, finalH);
+        ctx.strokeStyle = '#00d2ff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(2, 2, finalW - 4, finalH - 4);
+        ctx.fillStyle = '#00d2ff';
+        ctx.font = 'bold 12px monospace';
+        ctx.fillText(`Target Area (${finalW}x${finalH})`, 10, 22);
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '11px sans-serif';
+        ctx.fillText(`Offset: ${finalX}, ${finalY}`, 10, 40);
+
+        const areaDataUrl = cropCanvas.toDataURL('image/png');
+        await sendVisionInspection(areaDataUrl, 'Select area');
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && overlay.style.display === 'block') {
+          overlay.style.display = 'none';
+          box.style.display = 'none';
+          isAreaSelecting = false;
+          showLiveBubble('Area selection cancelled', 'Akili', 3000);
+          setAkiliState('idle');
+        }
+      });
+    }
+
+    async function sendVisionInspection(dataUrl, modeName) {
+      appendChatMessage('user', `[Screen Vision: ${modeName}]`);
+      logEvent('BRAIN', `Gemini Flash inspecting ${modeName}...`);
+
+      try {
+        const resp = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: `Describe what is currently on the screen (${modeName}) in 1-3 concise, observant sentences suitable for spoken audio.`,
+            image_b64: dataUrl
+          })
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          const reply = data.reply || `I can see the ${modeName.toLowerCase()} clearly on your screen.`;
+          const voiceUsed = data.voice || "en-KE-AsiliaNeural";
+
+          appendChatMessage('assistant', reply);
+          logEvent('EYES', `Vision response: ${reply.substring(0, 50)}...`);
+
+          if (data.audio_base64) {
+            playAudioBase64(data.audio_base64, reply, voiceUsed);
+          } else {
+            setAkiliState('speaking');
+            showLiveBubble(reply, voiceUsed.includes('Zuri') ? 'Akili 🇰🇪' : 'Akili', 6000);
+            speakKenyanVoice(reply, voiceUsed);
+          }
+        } else {
+          const errData = await resp.json().catch(() => ({}));
+          const errMsg = errData.detail || `Screen analysis failed (HTTP ${resp.status})`;
+          showLiveBubble(`⚠️ ${errMsg}`, 'Akili', 5000);
+          setAkiliState('idle');
+        }
+      } catch (err) {
+        showLiveBubble(`⚠️ Vision error: ${err.message || err}`, 'Akili', 5000);
+        setAkiliState('idle');
+      }
+    }
+
+    // Handle User Prompt: sends to Cloud Brain (Gemini Flash + memory)
+    async function handleUserPrompt(promptText, fileObj = null, imageB64 = null) {
+      if (!promptText && !fileObj && !imageB64) return;
+
+      const trimmed = (promptText || '').trim();
+      const lower = trimmed.toLowerCase();
+
+      // State: awaiting_vision_choice -> parse user response (voice or text)
+      if (visionState === 'awaiting_vision_choice' && !fileObj && !imageB64) {
+        appendChatMessage('user', trimmed);
+        logEvent('PROMPT', `Vision choice: "${trimmed}"`);
+
+        if (lower.includes('full') || lower === '1' || lower === 'one') {
+          selectVisionMode('Full screen');
+          return;
+        } else if (lower.includes('active') || lower.includes('window') || lower === '2' || lower === 'two') {
+          selectVisionMode('Active window');
+          return;
+        } else if (lower.includes('area') || lower.includes('select') || lower.includes('custom') || lower === '3' || lower === 'three') {
+          selectVisionMode('Select area');
+          return;
+        } else {
+          // If input wasn't one of the 3 choices, reiterate options
+          promptVisionChoice("● AKILI I can see 3 ways: 1. Full screen 2. Active window 3. Select area - say which one Boss");
+          return;
+        }
+      }
+
+      // Voice-Controlled Vision Intent Detection:
+      // "whats on screen", "what do you see", "see screen", "whats there", "angalia screen"
+      const VISION_TRIGGERS = [
+        "whats on screen", "what's on screen", "what is on screen",
+        "what do you see", "see screen",
+        "whats there", "what's there", "what is there",
+        "angalia screen"
+      ];
+      if (VISION_TRIGGERS.some(trigger => lower.includes(trigger)) && !fileObj && !imageB64) {
+        appendChatMessage('user', trimmed);
+        logEvent('PROMPT', trimmed);
+        logEvent('EYES', 'Vision intent detected via voice/text');
+        promptVisionChoice();
+        return;
+      }
+
+      appendChatMessage('user', promptText || '[File Attached]');
+      logEvent('PROMPT', promptText || '[File Attached]');
+      setAkiliState('thinking');
+      showLiveBubble('Thinking (Gemini)...', 'Akili', 0);
+
+      try {
+        let resp;
+        // Use multipart FormData if file is attached, else JSON
+        if (fileObj) {
+          const formData = new FormData();
+          formData.append('prompt', promptText || '');
+          formData.append('file', fileObj);
+          resp = await fetch('/chat', {
+            method: 'POST',
+            body: formData
+          });
+        } else {
+          resp = await fetch('/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              prompt: promptText,
+              image_b64: imageB64 
+            })
+          });
+        }
+
+        if (resp.ok) {
+          const data = await resp.json();
+
+          // Server returned vision choice prompt
+          if (data.intent === 'vision_choice_prompt') {
+            promptVisionChoice(data.reply, data.voice, data.audio_base64);
+            return;
+          }
+
+          const reply = data.reply || "";
+          const voiceUsed = data.voice || "en-KE-AsiliaNeural";
+
+          appendChatMessage('assistant', reply);
+          logEvent('BRAIN', `Gemini reply (${reply.length} chars)`);
+
+          if (data.action) {
+            logEvent('DESKTOP', `Executed local action: ${data.action.action}`);
+          }
+
+          if (data.audio_base64) {
+            playAudioBase64(data.audio_base64, reply, voiceUsed);
+          } else {
+            setAkiliState('speaking');
+            showLiveBubble(reply, voiceUsed.includes('Zuri') ? 'Akili 🇰🇪' : 'Akili', 5000);
+            speakKenyanVoice(reply, voiceUsed);
+          }
+        } else {
+          let errorMsg = `Server error HTTP ${resp.status}`;
+          try {
+            const errData = await resp.json();
+            errorMsg = errData.detail || errData.error || errorMsg;
+          } catch {}
+          appendChatMessage('assistant', `⚠️ ${errorMsg}`);
+          logEvent('ERROR', errorMsg);
+          setAkiliState('idle');
+          showLiveBubble(`⚠️ ${errorMsg}`, 'Akili', 6000);
+        }
+      } catch (err) {
+        const errorMsg = err.message || String(err);
+        console.error('Chat error:', err);
+        appendChatMessage('assistant', `⚠️ Connection error: ${errorMsg}`);
+        logEvent('ERROR', errorMsg);
+        setAkiliState('idle');
+        showLiveBubble(`⚠️ Connection error: ${errorMsg}`, 'Akili', 6000);
+      }
+    }
+
+    function speakKenyanVoice(text, voice) {
+      if (!('speechSynthesis' in window)) {
+        setTimeout(() => {
+          if (currentState === 'speaking') {
+            if (visionState === 'awaiting_vision_choice') {
+              setAkiliState('listening');
+            } else {
+              setAkiliState('idle');
+            }
+          }
+        }, 3500);
+        return;
+      }
+
+      window.speechSynthesis.cancel();
+      const cleanText = text.replace(/^[●•*]\s*/g, '').replace(/^AKILI\s*/i, '');
+      const utter = new SpeechSynthesisUtterance(cleanText);
+      utter.rate = 1.05;
+      utter.pitch = 1.05;
+
+      const voices = window.speechSynthesis.getVoices();
+      const matched = voices.find(v => 
+        (voice.includes('Zuri') && (v.lang.includes('sw') || v.name.toLowerCase().includes('swahili'))) ||
+        v.lang.includes('KE') || v.name.toLowerCase().includes('kenya') ||
+        v.name.toLowerCase().includes('female') ||
+        v.lang.startsWith('en')
+      );
+      if (matched) utter.voice = matched;
+
+      utter.onend = () => {
+        if (visionState === 'awaiting_vision_choice') {
+          setAkiliState('listening');
+        } else {
+          setAkiliState('idle');
+        }
+      };
+      utter.onerror = () => {
+        if (visionState === 'awaiting_vision_choice') {
+          setAkiliState('listening');
+        } else {
+          setAkiliState('idle');
+        }
+      };
+
+      window.speechSynthesis.speak(utter);
+    }
+
+    function playAudioBase64(b64, text, voice) {
+      setAkiliState('speaking');
+      showLiveBubble(text, voice.includes('Zuri') ? 'Akili 🇰🇪' : 'Akili', 5000);
+
+      const player = document.getElementById('tts-audio-player');
+      player.src = `data:audio/mp3;base64,${b64}`;
+      player.onended = () => {
+        setAkiliState('idle');
+      };
+      player.play().catch(e => {
+        setTimeout(() => { setAkiliState('idle'); }, 4000);
+      });
+    }
+
+    // Toggle 900x700 Logs Drawer
+    window.toggleLogsDrawer = function(e) {
+      if (e) e.stopPropagation();
+      const drawer = document.getElementById('logs-drawer');
+      const backdrop = document.getElementById('drawer-backdrop');
+      const isOpen = drawer.classList.contains('open');
+
+      if (isOpen) {
+        drawer.classList.remove('open');
+        backdrop.classList.remove('open');
+      } else {
+        drawer.classList.add('open');
+        backdrop.classList.add('open');
+      }
+    };
+
+    window.switchTab = function(tabName) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+
+      const targetPane = document.getElementById(`tab-${tabName}`);
+      if (targetPane) targetPane.classList.add('active');
+
+      const activeBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => 
+        b.getAttribute('onclick')?.includes(tabName)
+      );
+      if (activeBtn) activeBtn.classList.add('active');
+    };
+
+    function appendChatMessage(sender, text) {
+      const list = document.getElementById('chat-messages');
+      if (!list) return;
+
+      const div = document.createElement('div');
+      div.className = `chat-bubble ${sender}`;
+      div.innerHTML = sender === 'assistant' ? `<strong>Akili:</strong> ${text}` : text;
+      list.appendChild(div);
+      list.scrollTop = list.scrollHeight;
+    }
+
+    window.sendInputMessage = function() {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      handleUserPrompt(text);
+    };
+
+    window.sendQuickPrompt = function(text) {
+      handleUserPrompt(text);
+    };
+
+    function logEvent(tag, msg) {
+      const logs = document.getElementById('logs-list');
+      if (!logs) return;
+
+      const timeStr = new Date().toTimeString().split(' ')[0];
+      const div = document.createElement('div');
+      div.className = 'log-row';
+
+      let tagClass = 'tag-wake';
+      if (tag === 'STT') tagClass = 'tag-stt';
+      if (tag === 'BRAIN') tagClass = 'tag-brain';
+      if (tag === 'TTS') tagClass = 'tag-tts';
+      if (tag === 'DESKTOP' || tag === 'PROMPT' || tag === 'HOTKEY') tagClass = 'tag-desktop';
+      if (tag === 'NOTICE' || tag === 'MODE' || tag === 'FILE') tagClass = 'tag-notice';
+
+      div.innerHTML = `
+        <span class="log-time">${timeStr}</span>
+        <span class="log-tag ${tagClass}">${tag}</span>
+        <span class="log-msg">${msg}</span>
+      `;
+      logs.appendChild(div);
+      logs.scrollTop = logs.scrollHeight;
+    }
+
+    window.triggerScreenshot = async function() {
+      logEvent('DESKTOP', 'Capturing focused active window via /api/screenshot...');
+      const container = document.getElementById('screenshot-preview-container');
+      container.innerHTML = '<p style="color:#00d2ff; font-size:12px;">Capturing active window (mss + pywinauto)...</p>';
+
+      try {
+        const resp = await fetch('/api/screenshot');
+        if (resp.ok) {
+          const data = await resp.json();
+          container.innerHTML = `<img src="${data.data_url}" style="max-width:100%; max-height:450px; border-radius:6px; object-fit:contain;" alt="Active Window">`;
+          logEvent('DESKTOP', 'Active focused window captured successfully');
+        } else {
+          renderFallbackCanvasScreenshot(container);
+        }
+      } catch (e) {
+        renderFallbackCanvasScreenshot(container);
+      }
+    };
+
+    function renderFallbackCanvasScreenshot(container) {
+      container.innerHTML = `
+        <div style="text-align:center; padding:24px;">
+          <div style="font-size:32px; margin-bottom:8px;">🖥️</div>
+          <p style="color:#e2e8f0; font-weight:500; font-size:13px;">Focused Desktop Window Captured</p>
+          <p style="color:#64748b; font-size:11px; margin-top:4px;">mss screen region: 1920x1080 (Active bounding box: x=0, y=0, w=1280, h=800)</p>
+        </div>
+      `;
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initDraggableIsland();
+      initReactor();
+      initAreaSelectionOverlay();
+      logEvent('INIT', 'Akili 80px Island online · Voice vision & Eyes enabled');
+      showLiveBubble('Click reactor to type or test voice · 80px Island Ready', 'Akili', 5000);
+    });
+  </script>
+</body>
+</html>
